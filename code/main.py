@@ -1,5 +1,6 @@
 #Scrape imports
 import time
+import logging
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
@@ -11,16 +12,17 @@ import pandas as pd
 import re
 
 #Write imports
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Alignment
-from openpyxl.styles import Font
-from openpyxl import Workbook
 import os
-from bs4 import BeautifulSoup
 import requests
+from openpyxl import load_workbook
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter 
+from bs4 import BeautifulSoup
 
 headers = {'user-agent': "alanuthuppan@yahoo.com"}
+
+logging.basicConfig(filename='scraping_errors.log', level=logging.ERROR)
 
 def scrape(cik):
     #Final list of soups
@@ -32,69 +34,74 @@ def scrape(cik):
     driver = webdriver.Chrome()
     wait = WebDriverWait(driver, 10)
 
-    # Navigate to the URL and extract the name of the company
-    url = base_url + landing_url + str(cik)
-    driver.get(url)
-    title = driver.find_element(By.ID, "name")
-    name = title.text
-
-    # Locate the expand button and open it
-    h5_tags = driver.find_elements(By.TAG_NAME, "h5")
-    for h5_tag in h5_tags:
-        if h5_tag.text == "[+] 10-K (annual reports) and 10-Q (quarterly reports)":
-            h5_tag.click()
-            time.sleep(1)
-            break
-
-    # Locate the View All button and click it
-    xpath = '//button[text()="View all 10-Ks and 10-Qs"]'
-    button = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-    button.click()
-    time.sleep(1)
-
-    # Fetch the new page content and loop through the table to get all of the document urls
-    document_urls = []
-    table = driver.find_element(By.ID, 'filingsTable')
-    rows = table.find_elements(By.TAG_NAME, 'tr')
-    for row in rows[1:]:
-        columns = row.find_elements(By.TAG_NAME, 'td')
-        if len(columns) > 1:
-            link_element = columns[1].find_element(By.TAG_NAME, 'a')
-            if link_element:
-                document_urls.append(link_element.get_attribute('href'))
-
-    # Separate IXBRL documents and HTML documents
-    ix_docs = []
-    html_docs = []
-    for url in document_urls:
-        if url.__contains__('ix?'):
-            ix_docs.append(url)
-        else:
-            html_docs.append(url)
-
-    # For IXBRL documents, open them as HTML documents and then add soup contents to list
-    for url in ix_docs:
+    try:
+        # Navigate to the URL and extract the name of the company
+        url = base_url + landing_url + str(cik)
         driver.get(url)
-        # Locate and click the "Menu" dropdown
-        menu_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "menu-dropdown-link")))
-        time.sleep(2)
-        menu_dropdown.click()
-        
+        title = driver.find_element(By.ID, "name")
+        name = title.text
 
-        # Now, within the opened dropdown, locate the "Open as HTML" link and click it
-        open_as_html_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Open as HTML')]")))
-        open_as_html_link.click()
+        # Locate the expand button and open it
+        h5_tags = driver.find_elements(By.TAG_NAME, "h5")
+        for h5_tag in h5_tags:
+            if h5_tag.text == "[+] 10-K (annual reports) and 10-Q (quarterly reports)":
+                h5_tag.click()
+                time.sleep(1)
+                break
+
+        # Locate the View All button and click it
+        xpath = '//button[text()="View all 10-Ks and 10-Qs"]'
+        button = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+        button.click()
         time.sleep(1)
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        result.append((soup, name))
 
-    # For HTML documents, simply add soup contents to list
-    for url in html_docs:
-        driver.get(url)
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        result.append((soup, name))
+        # Fetch the new page content and loop through the table to get all of the document urls
+        document_urls = []
+        table = driver.find_element(By.ID, 'filingsTable')
+        rows = table.find_elements(By.TAG_NAME, 'tr')
+        for row in rows[1:]:
+            columns = row.find_elements(By.TAG_NAME, 'td')
+            if len(columns) > 1:
+                link_element = columns[1].find_element(By.TAG_NAME, 'a')
+                if link_element:
+                    document_urls.append(link_element.get_attribute('href'))
 
-    driver.close()
+        # Separate IXBRL documents and HTML documents
+        ix_docs = []
+        html_docs = []
+        for url in document_urls:
+            if url.__contains__('ix?'):
+                ix_docs.append(url)
+            else:
+                html_docs.append(url)
+
+        # For IXBRL documents, open them as HTML documents and then add soup contents to list
+        for url in ix_docs:
+            driver.get(url)
+            # Locate and click the "Menu" dropdown
+            menu_dropdown = wait.until(EC.element_to_be_clickable((By.ID, "menu-dropdown-link")))
+            time.sleep(2)
+            menu_dropdown.click()
+            
+
+            # Now, within the opened dropdown, locate the "Open as HTML" link and click it
+            open_as_html_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Open as HTML')]")))
+            open_as_html_link.click()
+            time.sleep(1)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            result.append((soup, name))
+
+        # For HTML documents, simply add soup contents to list
+        for url in html_docs:
+            driver.get(url)
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            result.append((soup, name))
+
+    except Exception as e:
+        logging.error(f"Error scraping CIK {cik}: {e}")
+    
+    finally:
+        driver.close()
 
     return result
 
@@ -136,112 +143,144 @@ def convert_value(value):
     # Convert percentage formatted values to float (0.xx format)
     elif '%' in value:
         try:
-            return float(value.replace('%', '')) / 100
+            return round(float(value.replace('%', '')) / 100, 4)
         except ValueError:
             pass
 
     # Convert float in text form to actual float
     try:
-        return float(value)
+        return round(float(value), 4)
     except ValueError:
         pass
 
     # If none of the above, return the value as is
     return value
 
+
 def table_to_dataframe(table, date):
     data = []
-
-    rows = table.find_all('tr')[3:]  # Skip the first row
-
     headers = []
-    for header in rows[0].find_all('td'):
-        if header.find('span') is None:
-            continue
-        headers.append(header.get_text().strip())
-    data.append(headers)
-
-    for row in rows[1:]:
-        row_data = []
-        for cell in row.find_all('td'):
-            # Skip cells containing only '$' or '%'
-            if cell.get_text().strip() in ["$", "%"]:
-                continue
-
-            # Check if the cell contains a span element, if not skip
-            if cell.find('span') is None:
-                continue
-
-            # Skip cell if it contains a capitalized, three-letter text
-            if len(cell.get_text()) == 3 and cell.get_text().isupper():
-                continue
-
-            cell_value = cell.get_text().strip()
-            converted_value = convert_value(cell_value)
-            row_data.append(converted_value)
-
-        # Combine third and fourth cells and shift left
-        if len(row_data) > 4:
-            row_data[2] = str(row_data[2]) + '         ' + str(row_data[3])
-            del row_data[3]
-        
-        # Append this row data to the overall data
-        if row_data:
-            data.append(row_data)
     
-    # Convert to DataFrame
-    try:
-        df = pd.DataFrame(data[1:], columns=data[0])
-    except Exception as e:
-        print(f"A writing error occurred: {e}")
-        df = pd.DataFrame()
+    rows = table.find_all('tr')[3:]  # Skip the first three rows
 
+    try:
+        for header in rows[0].find_all('td'):
+            if header.find('span') is None:
+                continue
+            headers.append(header.get_text().strip())
+        data.append(headers)
+
+        for row in rows[1:]:
+            # Check if the row contains a cell with a top border
+            skip_row = any("border-top" in cell.get("style", "") for cell in row.find_all("td"))
+            if skip_row:
+                continue
+            
+            row_data = []
+            for cell in row.find_all('td'):
+                # Skip cells containing only '$' or '%'
+                if cell.get_text().strip() in ["$", "%"]:
+                    continue
+
+                # Check if the cell contains a span element, if not skip
+                if cell.find('span') is None:
+                    continue
+
+                # Skip cell if it contains capitalized, three-letter text
+                if len(cell.get_text()) == 3 and cell.get_text().isupper():
+                    continue
+                
+                cell_value = cell.get_text().strip()
+                converted_value = convert_value(cell_value)
+                row_data.append(converted_value)
+
+            # Combine third and fourth cells and shift left
+            if len(row_data) > 4:
+                row_data[2] = str(row_data[2]) + '         ' + str(row_data[3])
+                del row_data[3]
+            
+            # Append this row data to the overall data
+            if row_data:
+                data.append(row_data)
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(data[1:], columns=headers)  # Exclude the first row (headers) from data
+    except Exception as e:
+        logging.error(f"A DataFrame creation error occurred: {e}")
+        df = pd.DataFrame()
+        
     return (df, date)
 
-def write_to_excel(df_tables):
+
+
+def write_to_excel(tables_by_date):
     filename = "cleaned_soi_tables.xlsx"
-
-    if os.path.exists(filename):
-        book = load_workbook(filename)
-    else:
+    
+    # Check if the file exists, if not create a new Excel file
+    if not os.path.exists(filename):
         book = Workbook()
-        del book["Sheet"]  # Remove default sheet
-
-    for df, date in df_tables:
-        suffix = 1
-        sheet_name = f"{date}_{suffix}"
-
-        # Check if the sheet already exists. If it does, find a new name
-        while sheet_name in book.sheetnames:
-            suffix += 1
-            sheet_name = f"{date}_{suffix}"
-            
-
-        # Create new sheet
-        ws = book.create_sheet(title=sheet_name)
-
-        # Write data
-        for r_idx, row in enumerate(df.values, 1):
-            for c_idx, value in enumerate(row, 1):
-                ws.cell(row=r_idx, column=c_idx, value=value)
-
-        # Write headers
-        for c_idx, header in enumerate(df.columns, 1):
-            cell = ws.cell(row=1, column=c_idx, value=header)
-            cell.font = Font(bold=True)
-
-        # Adjusting the column widths
-        for column in df:
-            max_len = max(df[column].astype(str).apply(len).max(),  # max length in column
-                          len(str(column))) + 2  # length of column header/title
-            col_letter = get_column_letter(df.columns.get_loc(column) + 1)  # Get excel column letter
-            ws.column_dimensions[col_letter].width = max_len
-
-            # Aligning cell values to center
-            for cell in list(ws[col_letter]):
-                cell.alignment = Alignment(horizontal='center')
-
         book.save(filename)
+    
+    # Open the existing Excel file
+    book = load_workbook(filename)
+    writer = pd.ExcelWriter(filename, engine='openpyxl')
+    writer.book = book
+    
+    for date, dfs in tables_by_date.items():
+        for df in dfs:
+            if date in book.sheetnames:
+                # If sheet exists, read the existing data and find the next available row (startrow)
+                sheet = book[date]
+                data = sheet.values
+                
+                # Check if the sheet is empty
+                try:
+                    columns = next(data)[0:]
+                    existing_df = pd.DataFrame(data, columns=columns)
+                    startrow = existing_df.shape[0] + 1
+                except StopIteration:
+                    # If the sheet is empty, set startrow to 0
+                    startrow = 0
+                
+                # Check if the sheet is empty to determine whether to write the header
+                write_header = startrow == 0
+                
+                # Write the new DataFrame to the existing sheet starting from the next available row
+                df.to_excel(writer, sheet_name=date, startrow=startrow, index=False, header=write_header)
+            else:
+                # If sheet does not exist, create a new sheet with the given date and write DataFrame to it
+                df.to_excel(writer, sheet_name=date, index=False)
+    
+    # Check if the default sheet "Sheet" exists and remove it
+    if 'Sheet' in book.sheetnames:
+        book.remove(book['Sheet'])
+
+    # Save the changes to the Excel file
+    writer.save()
+    
+    # Reopen the workbook to apply column width, font, and cell alignment adjustments
+    book = load_workbook(filename)
+    for sheetname in book.sheetnames:
+        sheet = book[sheetname]
+        for column in sheet.columns:
+            max_length = 0
+            column = [cell for cell in column]
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            sheet.column_dimensions[get_column_letter(column[0].column)].width = adjusted_width
+            for cell in column:
+                cell.alignment = Alignment(horizontal='center')
+                if cell.row == 1:
+                    cell.font = Font(bold=True)
+    
+    # Save the final adjustments to the Excel file
+    book.save(filename)
+
 
 
 # # Scrape the pages from the CIK 
@@ -255,18 +294,19 @@ filing_soups = [(soup1, "Blackstone Private Credit Fund"), (soup2, "Blackstone P
 # Extract all the relevant tables and dates from each filing
 
 any_errors = False
-
+tables_by_date = {}
 for soup, name in filing_soups:
     df_tables = []
     try:
         result = grab(soup, name)
         if result:
-            for pair in result:
-                table, date = table_to_dataframe(pair[0], pair[1])
-                df_tables.append((table, date))
-            write_to_excel(df_tables)
-        else:
-            print("None")
+            for table, date in result:
+                df, _ = table_to_dataframe(table, date)
+
+                if date in tables_by_date:
+                    tables_by_date[date].append(df)
+                else:
+                    tables_by_date[date] = [df]
     except Exception as e:
         print(f"A soup error occurred: {e}")
         any_errors = True
@@ -274,4 +314,5 @@ for soup, name in filing_soups:
 if any_errors:
     print("Some errors occurred while processing the tables. Please check the Excel file for partial results.")
 else:
+    write_to_excel(tables_by_date)
     print("All tables were processed successfully.") 

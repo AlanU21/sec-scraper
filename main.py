@@ -18,7 +18,15 @@ def get_soup_content(url):
     return BeautifulSoup(response.content, 'html.parser')
 
 def is_subtotal_row(row):
-    return row.select_one('td[style*="border-top"]') is not None
+    first_cell = row.find('td')
+    if first_cell and 'font-weight:700' in str(first_cell) and row.select_one('td[style*="border-top"]') is not None:
+        subheader_text = first_cell.get_text(strip=True)
+        if 'total' in subheader_text.lower():
+            return False
+    elif row.select_one('td[style*="border-top"]') is not None:
+        return True
+    else:
+        return False
 
 def process_table(soup, company_name, phrase):
     tables = soup.find_all(lambda tag: tag.name == 'table' and phrase in tag.text.lower() and company_name in tag.text)
@@ -155,7 +163,6 @@ def main():
                 append_df_to_excel(output_excel, df, sheet_name=date_text)
             
             break
-
         except Exception as e:
             with open('error_log.txt', 'a') as f:
                 f.write(f"Error processing {url}: {str(e)}\n")
